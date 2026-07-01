@@ -1,0 +1,117 @@
+# ============================================================
+# ATLAS input for temperature-dependent p-n junction behaviour
+# Temperature range: 25 K to 900 K
+# ============================================================
+
+go atlas
+
+# ------------------------------------------------------------
+# This solve is only used as a "template" for the sweep.
+# The temperature will be overwritten by the sweep variable.
+# ------------------------------------------------------------
+
+set T = 400
+set Nd = 1e18
+set Na = 1e17
+
+# ------------------------------------------------------------
+# 1. Mesh definition (1-D structure)
+# x-axis: 0-1 µm (spacing is unimportant for 1-D)
+# y-axis: 0-10 µm (junction at y=5 µm)
+# ------------------------------------------------------------
+mesh
+    x.mesh loc=0.0 spac=0.1
+    x.mesh loc=1.0 spac=0.1
+
+    y.mesh loc=0.0 spac=0.1
+    y.mesh loc=5.0 spac=0.01
+    y.mesh loc=10.0 spac=0.1
+
+# ------------------------------------------------------------
+# 2. Region and electrode definition
+# ------------------------------------------------------------
+region num=1 material=silicon  
+
+electrode name=anode top
+electrode name=cathode bottom
+
+# ------------------------------------------------------------
+# 3. Doping profile (abrupt p-n junction)
+# n-side: N_D = 1e18 cm-3 (y = 0-5 µm)
+# p-side: N_A = 1e17 cm-3 (y = 5-10 µm)
+# ------------------------------------------------------------
+doping uniform n.type conc=$Nd y.min=0.0 y.max=5.0
+doping uniform p.type conc=$Na y.min=5.0 y.max=10.0
+
+# ------------------------------------------------------------
+# 4. Physical models
+# - Fermi-Dirac statistics instead of Boltzmann's (FERMI)
+# - Klaassen's mobility model (KLA)
+# - Klaassen's bandgap narrowing model (BGN.KLAASSEN)
+# - Incomplete ionization (INCOMPLETE) for low-T freeze-out
+# ------------------------------------------------------------
+models FERMI KLA BGN.KLAASSEN INCOMPLETE PRINT
+models TEMP=$T
+
+
+OUTPUT BAND.TEMP BAND.PARAM CHARGE E.LINES E.VELOCITY E.MOBILITY QSS PERMI \
+ RECOMB U.SRH U.AUG U.RAD FLOWLINES TAURN TAURP
+
+PROBE name="nn" AVERAGE N.CONC Y.MAX = 3
+PROBE name="pp" AVERAGE P.CONC Y.MIN = 7
+PROBE name="pn" AVERAGE P.CONC Y.MAX = 3
+PROBE name="np" AVERAGE N.CONC Y.MIN = 7
+PROBE name="Max Potential" MAX POTENTIAL
+PROBE name="Min Potential" MIN POTENTIAL
+
+
+
+# ------------------------------------------------------------
+# 5. Solve the equilibrium state at a single temperature
+# ------------------------------------------------------------
+LOG OUTF= Topic2LogFile.log
+ solve init
+ solve prev
+LOG OFF
+
+# ------------------------------------------------------------
+# 6. Save the structure for later inspection
+# ------------------------------------------------------------
+save outf=Topic2StructureFile.str
+#TONYPLOT Topic2StructureFile.str
+
+
+extract init infile="Topic2LogFile.log"
+extract name="Majority Electron Concentration (/cm^3)" max(curve(v."anode", probe."nn"))
+extract name="Majority Hole Concentration (/cm^3)" max(curve(v."anode", probe."pp"))
+extract name="Minority Electron Concentration (/cm^3)" max(curve(v."anode", probe."np"))
+extract name="Minority Hole Concentration (/cm^3)" max(curve(v."anode", probe."pn"))
+extract name="Intrinsic Carrier Concentration (/cm^3)" max(curve(v."anode", sqrt(probe."nn"*probe."pn")))
+extract name="V_bi" max(curve(v."anode", probe."Max Potential"-probe."Min Potential"))
+
+
+
+# ------------------------------------------------------------
+# 7. Close the ATLAS part – now we switch to DeckBuild sweep
+# ------------------------------------------------------------
+quit
+
+
+# ============================================================
+# DeckBuild sweep over temperature
+# ============================================================
+go internal
+
+# Load the ATLAS template (the file itself)
+load infile=Topic2Code.in
+
+# Sweep parameter "temp" from 25 K to 900 K, taking 30 K steps
+sweep PARAMETER=T TYPE=LINEAR RANGE="25, 900, 30" \
+ PARAMETER=Nd TYPE=LIST DATA="1e18" \
+ PARAMETER=Na TYPE=LIST DATA="1e17"
+
+# Save all extracted data into a single .dat file
+save type=sdb outfile=Topic2SweepResults.dat
+
+tonyplot Topic2SweepResults.dat
+quit
